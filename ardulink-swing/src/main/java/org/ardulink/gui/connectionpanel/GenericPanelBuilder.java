@@ -16,10 +16,10 @@ limitations under the License.
 package org.ardulink.gui.connectionpanel;
 
 import static java.awt.GridBagConstraints.REMAINDER;
+import static org.ardulink.gui.connectionpanel.GridBagConstraintsBuilder.constraints;
 import static org.ardulink.util.Primitive.parseAs;
 import static org.ardulink.util.Primitive.unwrap;
 import static org.ardulink.util.Primitive.wrap;
-import static org.ardulink.gui.connectionpanel.GridBagConstraintsBuilder.constraints;
 
 import java.awt.Component;
 import java.awt.GridBagLayout;
@@ -30,6 +30,7 @@ import java.awt.event.FocusEvent;
 import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
 import java.net.URI;
+import java.util.Arrays;
 
 import javax.swing.DefaultComboBoxModel;
 import javax.swing.ImageIcon;
@@ -112,64 +113,82 @@ public class GenericPanelBuilder implements PanelBuilder {
 				GenericPanelBuilder.class.getResource("icons/search_icon.png"));
 	}
 
-	private static JComponent createComponent(final ConfigAttribute attribute) {
+	private static JComponent createComponent(ConfigAttribute attribute) {
 		if (isBoolean(attribute)) {
-			final JCheckBox checkBox = new JCheckBox();
-			checkBox.addActionListener(new ActionListener() {
-				@Override
-				public void actionPerformed(ActionEvent e) {
-					attribute.setValue(Boolean.valueOf(checkBox.isSelected()));
-				}
-			});
-			return setState(checkBox, attribute);
+			return createCheckBox(attribute);
 		} else if (isChoice(attribute)) {
-			final JComboBox jComboBox = new JComboBox(
-					attribute.getChoiceValues());
-			jComboBox.addActionListener(new ActionListener() {
-				@Override
-				public void actionPerformed(ActionEvent e) {
-					attribute.setValue(jComboBox.getSelectedItem());
-				}
-			});
-			// raise a selection event on model changes
-			jComboBox.addPropertyChangeListener("model",
-					new PropertyChangeListener() {
-						@Override
-						public void propertyChange(PropertyChangeEvent pce) {
-							selectFirstValue(jComboBox);
-						}
-					});
-			return selectFirstValue(jComboBox);
+			return createComboxBox(attribute);
 		} else if (isNumber(attribute)) {
-			final JSpinner spinner = new JSpinner(createModel(attribute));
-			JSpinner.NumberEditor editor = new JSpinner.NumberEditor(spinner);
-			editor.getTextField().setHorizontalAlignment(
-					JFormattedTextField.LEFT);
-			editor.getFormat().setGroupingUsed(false);
-			spinner.setEditor(editor);
-			spinner.setValue(attribute.getValue());
-
-			spinner.addChangeListener(new ChangeListener() {
-				@Override
-				public void stateChanged(ChangeEvent e) {
-					attribute.setValue(parseAs(unwrap(attribute.getType()),
-							String.valueOf(spinner.getValue())));
-				}
-			});
-			return spinner;
+			return createSpinner(attribute);
 		} else {
-			Object value = attribute.getValue();
-			final JTextField jTextField = new JTextField(value == null ? ""
-					: String.valueOf(value));
-
-			jTextField.addFocusListener(new FocusAdapter() {
-				@Override
-				public void focusLost(FocusEvent e) {
-					attribute.setValue(jTextField.getText());
-				}
-			});
-			return jTextField;
+			return createTextField(attribute);
 		}
+	}
+
+	private static JComponent createCheckBox(final ConfigAttribute attribute) {
+		final JCheckBox checkBox = new JCheckBox();
+		checkBox.addActionListener(new ActionListener() {
+			@Override
+			public void actionPerformed(ActionEvent e) {
+				attribute.setValue(Boolean.valueOf(checkBox.isSelected()));
+			}
+		});
+		return setState(checkBox, attribute);
+	}
+
+	private static JComponent createComboxBox(final ConfigAttribute attribute) {
+		final JComboBox jComboBox = new JComboBox(attribute.getChoiceValues());
+		jComboBox.addActionListener(new ActionListener() {
+			@Override
+			public void actionPerformed(ActionEvent e) {
+				attribute.setValue(jComboBox.getSelectedItem());
+			}
+		});
+		final boolean nullIsAvalidItem = Arrays.asList(
+				attribute.getChoiceValues()).contains(null);
+		// raise a selection event on model changes
+		jComboBox.addPropertyChangeListener("model",
+				new PropertyChangeListener() {
+					@Override
+					public void propertyChange(PropertyChangeEvent pce) {
+						setSelection(jComboBox, attribute.getValue(),
+								nullIsAvalidItem);
+					}
+				});
+		setSelection(jComboBox, attribute.getValue(), nullIsAvalidItem);
+		return jComboBox;
+	}
+
+	private static JComponent createSpinner(final ConfigAttribute attribute) {
+		final JSpinner spinner = new JSpinner(createModel(attribute));
+		JSpinner.NumberEditor editor = new JSpinner.NumberEditor(spinner);
+		editor.getTextField().setHorizontalAlignment(JFormattedTextField.LEFT);
+		editor.getFormat().setGroupingUsed(false);
+		spinner.setEditor(editor);
+		spinner.setValue(attribute.getValue());
+
+		spinner.addChangeListener(new ChangeListener() {
+			@Override
+			public void stateChanged(ChangeEvent e) {
+				attribute.setValue(parseAs(unwrap(attribute.getType()),
+						String.valueOf(spinner.getValue())));
+			}
+		});
+		return spinner;
+	}
+
+	private static JComponent createTextField(final ConfigAttribute attribute) {
+		Object value = attribute.getValue();
+		final JTextField jTextField = new JTextField(value == null ? ""
+				: String.valueOf(value));
+
+		jTextField.addFocusListener(new FocusAdapter() {
+			@Override
+			public void focusLost(FocusEvent e) {
+				attribute.setValue(jTextField.getText());
+			}
+		});
+		return jTextField;
 	}
 
 	private static SpinnerModel createModel(ConfigAttribute attribute) {
@@ -192,9 +211,21 @@ public class GenericPanelBuilder implements PanelBuilder {
 		return checkBox;
 	}
 
-	private static JComponent selectFirstValue(JComboBox comboBox) {
+	private static void setSelection(JComboBox comboBox, Object value,
+			boolean nullIsAvalidItem) {
+		if (value == null) {
+			if (nullIsAvalidItem) {
+				comboBox.setSelectedIndex(-1);
+			} else {
+				selectFirstValue(comboBox);
+			}
+		} else {
+			comboBox.setSelectedItem(value);
+		}
+	}
+
+	private static void selectFirstValue(JComboBox comboBox) {
 		comboBox.setSelectedIndex(comboBox.getModel().getSize() > 0 ? 0 : -1);
-		return comboBox;
 	}
 
 	private static boolean isChoice(ConfigAttribute attribute) {

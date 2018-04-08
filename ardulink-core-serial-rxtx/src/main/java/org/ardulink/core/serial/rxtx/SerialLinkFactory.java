@@ -20,7 +20,6 @@ import static gnu.io.SerialPort.DATABITS_8;
 import static gnu.io.SerialPort.PARITY_NONE;
 import static gnu.io.SerialPort.STOPBITS_1;
 import static java.util.concurrent.TimeUnit.SECONDS;
-import static org.ardulink.util.Preconditions.checkNotNull;
 import static org.ardulink.util.Preconditions.checkState;
 import gnu.io.CommPortIdentifier;
 import gnu.io.NoSuchPortException;
@@ -31,13 +30,10 @@ import gnu.io.UnsupportedCommOperationException;
 import java.io.IOException;
 
 import org.ardulink.core.ConnectionBasedLink;
-import org.ardulink.core.ConnectionBasedLink;
 import org.ardulink.core.Link;
 import org.ardulink.core.StreamConnection;
 import org.ardulink.core.convenience.LinkDelegate;
 import org.ardulink.core.linkmanager.LinkFactory;
-import org.ardulink.core.proto.api.Protocol;
-import org.ardulink.core.proto.impl.ArdulinkProtocol2;
 import org.ardulink.core.qos.QosLink;
 
 /**
@@ -50,8 +46,6 @@ import org.ardulink.core.qos.QosLink;
  */
 public class SerialLinkFactory implements LinkFactory<SerialLinkConfig> {
 
-	private static final Protocol proto = ArdulinkProtocol2.instance();
-
 	@Override
 	public String getName() {
 		return "serial";
@@ -62,14 +56,14 @@ public class SerialLinkFactory implements LinkFactory<SerialLinkConfig> {
 			throws NoSuchPortException, PortInUseException,
 			UnsupportedCommOperationException, IOException {
 		CommPortIdentifier portIdentifier = CommPortIdentifier
-				.getPortIdentifier(checkNotNull(config.getPort(),
-						"port must not be null"));
+				.getPortIdentifier(config.getPort());
 		checkState(!portIdentifier.isCurrentlyOwned(),
 				"Port %s is currently in use", config.getPort());
 		final SerialPort serialPort = serialPort(config, portIdentifier);
+
 		StreamConnection connection = new StreamConnection(
 				serialPort.getInputStream(), serialPort.getOutputStream(),
-				proto);
+				config.getProto());
 
 		ConnectionBasedLink connectionBasedLink = new ConnectionBasedLink(
 				connection, config.getProto());

@@ -12,7 +12,7 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
-*/
+ */
 
 package org.ardulink.core.serial.jssc;
 
@@ -20,7 +20,6 @@ import static java.util.concurrent.TimeUnit.SECONDS;
 import static jssc.SerialPort.DATABITS_8;
 import static jssc.SerialPort.PARITY_NONE;
 import static jssc.SerialPort.STOPBITS_1;
-import static org.ardulink.util.Preconditions.checkNotNull;
 import static org.ardulink.util.Preconditions.checkState;
 
 import java.io.IOException;
@@ -34,7 +33,6 @@ import org.ardulink.core.StreamConnection;
 import org.ardulink.core.convenience.LinkDelegate;
 import org.ardulink.core.linkmanager.LinkFactory;
 import org.ardulink.core.proto.api.Protocol;
-import org.ardulink.core.proto.impl.ArdulinkProtocol2;
 import org.ardulink.core.qos.QosLink;
 
 /**
@@ -47,8 +45,6 @@ import org.ardulink.core.qos.QosLink;
  */
 public class SerialLinkFactory implements LinkFactory<SerialLinkConfig> {
 
-	private static final Protocol proto = ArdulinkProtocol2.instance();
-
 	@Override
 	public String getName() {
 		return "serial-jssc";
@@ -57,13 +53,12 @@ public class SerialLinkFactory implements LinkFactory<SerialLinkConfig> {
 	@Override
 	public LinkDelegate newLink(SerialLinkConfig config)
 			throws SerialPortException, IOException {
-		String portIdentifier = checkNotNull(config.getPort(),
-				"port must not be null");
+		String portIdentifier = config.getPort();
 		final SerialPort serialPort = serialPort(config, portIdentifier);
 
 		StreamConnection connection = new StreamConnection(
 				new SerialInputStream(serialPort), new SerialOutputStream(
-						serialPort), proto);
+						serialPort), config.getProto());
 
 		Protocol proto = config.getProto();
 		ConnectionBasedLink connectionBasedLink = new ConnectionBasedLink(

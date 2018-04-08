@@ -3,7 +3,7 @@
 	<modelVersion>4.0.0</modelVersion>
 	<groupId>org.ardulink</groupId>
 	<artifactId>parent</artifactId>
-	<version>2.0.2-SNAPSHOT</version>
+	<version>2.1.1-SNAPSHOT</version>
 	<packaging>pom</packaging>
 	<url>http://www.ardulink.org</url>
 
@@ -67,6 +67,7 @@
 		<module>ardulink-core-util</module>
 		<module>ardulink-core-base</module>
 		<module>ardulink-core-virtual</module>
+		<module>ardulink-core-nodemcu</module>
 		<module>ardulink-core-serial-rxtx</module>
 		<module>ardulink-core-serial-jssc</module>
 		<module>ardulink-core-bluetooth</module>

@@ -12,17 +12,20 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
-*/
+ */
 
 package org.ardulink.core.proto.impl;
 
 import static java.lang.Boolean.FALSE;
 import static java.lang.Boolean.TRUE;
-import static java.lang.System.arraycopy;
+import static java.lang.Integer.parseInt;
+import static java.lang.Long.parseLong;
 import static org.ardulink.core.Pin.analogPin;
 import static org.ardulink.core.Pin.digitalPin;
 import static org.ardulink.core.Pin.Type.ANALOG;
 import static org.ardulink.core.Pin.Type.DIGITAL;
+import static org.ardulink.core.messages.api.FromDeviceChangeListeningState.Mode.START;
+import static org.ardulink.core.messages.api.FromDeviceChangeListeningState.Mode.STOP;
 import static org.ardulink.core.proto.impl.ALProtoBuilder.alpProtocolMessage;
 import static org.ardulink.core.proto.impl.ALProtoBuilder.ALPProtocolKey.ANALOG_PIN_READ;
 import static org.ardulink.core.proto.impl.ALProtoBuilder.ALPProtocolKey.CHAR_PRESSED;
@@ -38,12 +41,10 @@ import static org.ardulink.core.proto.impl.ALProtoBuilder.ALPProtocolKey.START_L
 import static org.ardulink.core.proto.impl.ALProtoBuilder.ALPProtocolKey.STOP_LISTENING_ANALOG;
 import static org.ardulink.core.proto.impl.ALProtoBuilder.ALPProtocolKey.STOP_LISTENING_DIGITAL;
 import static org.ardulink.core.proto.impl.ALProtoBuilder.ALPProtocolKey.TONE;
-import static org.ardulink.util.Integers.tryParse;
 import static org.ardulink.util.Preconditions.checkNotNull;
 import static org.ardulink.util.Preconditions.checkState;
 
 import java.net.URI;
-import java.util.HashMap;
 import java.util.Map;
 
 import org.ardulink.core.Pin;
@@ -55,6 +56,7 @@ import org.ardulink.core.messages.api.ToDeviceMessagePinStateChange;
 import org.ardulink.core.messages.api.ToDeviceMessageStartListening;
 import org.ardulink.core.messages.api.ToDeviceMessageStopListening;
 import org.ardulink.core.messages.api.ToDeviceMessageTone;
+import org.ardulink.core.messages.impl.DefaultFromDeviceChangeListeningState;
 import org.ardulink.core.messages.impl.DefaultFromDeviceMessageCustom;
 import org.ardulink.core.messages.impl.DefaultFromDeviceMessagePinStateChanged;
 import org.ardulink.core.messages.impl.DefaultFromDeviceMessageReady;
@@ -62,7 +64,8 @@ import org.ardulink.core.messages.impl.DefaultFromDeviceMessageReply;
 import org.ardulink.core.proto.api.MessageIdHolder;
 import org.ardulink.core.proto.api.Protocol;
 import org.ardulink.core.proto.impl.ALProtoBuilder.ALPProtocolKey;
-import org.ardulink.util.Longs;
+import org.ardulink.util.Bytes;
+import org.ardulink.util.MapBuilder;
 import org.ardulink.util.URIs;
 
 /**
@@ -97,12 +100,12 @@ public class ArdulinkProtocol2 implements Protocol {
 	public byte[] toDevice(ToDeviceMessageStartListening startListening) {
 		Pin pin = startListening.getPin();
 		if (startListening.getPin().is(ANALOG)) {
-			return toBytes(builder(startListening, START_LISTENING_ANALOG).forPin(
-					pin.pinNum()).withoutValue());
+			return toBytes(builder(startListening, START_LISTENING_ANALOG)
+					.forPin(pin.pinNum()).withoutValue());
 		}
 		if (startListening.getPin().is(DIGITAL)) {
-			return toBytes(builder(startListening, START_LISTENING_DIGITAL).forPin(
-					pin.pinNum()).withoutValue());
+			return toBytes(builder(startListening, START_LISTENING_DIGITAL)
+					.forPin(pin.pinNum()).withoutValue());
 		}
 		throw illegalPinType(startListening.getPin());
 	}
@@ -111,12 +114,12 @@ public class ArdulinkProtocol2 implements Protocol {
 	public byte[] toDevice(ToDeviceMessageStopListening stopListening) {
 		Pin pin = stopListening.getPin();
 		if (stopListening.getPin().is(ANALOG)) {
-			return toBytes(builder(stopListening, STOP_LISTENING_ANALOG).forPin(
-					pin.pinNum()).withoutValue());
+			return toBytes(builder(stopListening, STOP_LISTENING_ANALOG)
+					.forPin(pin.pinNum()).withoutValue());
 		}
 		if (stopListening.getPin().is(DIGITAL)) {
-			return toBytes(builder(stopListening, STOP_LISTENING_DIGITAL).forPin(
-					pin.pinNum()).withoutValue());
+			return toBytes(builder(stopListening, STOP_LISTENING_DIGITAL)
+					.forPin(pin.pinNum()).withoutValue());
 		}
 		throw illegalPinType(stopListening.getPin());
 	}
@@ -147,8 +150,7 @@ public class ArdulinkProtocol2 implements Protocol {
 		return toBytes(builder(keyPress, CHAR_PRESSED).withValue(
 				String.format("chr%scod%sloc%smod%smex%s",
 						keyPress.getKeychar(), keyPress.getKeycode(),
-						keyPress.getKeylocation(),
-						keyPress.getKeymodifiers(),
+						keyPress.getKeylocation(), keyPress.getKeymodifiers(),
 						keyPress.getKeymodifiersex())));
 	}
 
@@ -180,10 +182,10 @@ public class ArdulinkProtocol2 implements Protocol {
 
 		URI uri = URIs.newURI(in);
 
-		String alpPrefix = uri.getScheme();
-		checkState("alp".equals(checkNotNull(alpPrefix,
-				"Message hasn't a prefix")),
-				"Message prefix isn't equal to alp. It is: %s", alpPrefix);
+		String prefix = uri.getScheme();
+		checkState("alp".equals(checkNotNull(prefix,
+				"Message %s has no prefix", in)),
+				"Expected message prefix to be %s but was %s", "alp", prefix);
 
 		String command = checkNotNull(uri.getHost(), "Message hasn't a command");
 		String specs = removeFirstSlash(checkNotNull(uri.getPath(),
@@ -196,19 +198,27 @@ public class ArdulinkProtocol2 implements Protocol {
 		if (key == READY) {
 			return new DefaultFromDeviceMessageReady();
 		} else if (key == RPLY) {
-			
-			Map<String, Object> params = getParamsFromQuery(query);
-
-			checkNotNull(params.get("id"),
+			Map<String, String> params = paramsToMap(query);
+			String id = checkNotNull(params.get("id"),
 					"Reply message needs for mandatory param: id");
-			String id = (String) params.get("id");
-
-			return new DefaultFromDeviceMessageReply("ok".equalsIgnoreCase(specs),
-					checkNotNull(Longs.tryParse(id), "%s not a long value", id)
-							.longValue(), params);
-
+			return new DefaultFromDeviceMessageReply(
+					"ok".equalsIgnoreCase(specs), parseLong(id), params);
 		} else if (key == ALPProtocolKey.CUSTOM_EVENT) {
 			return new DefaultFromDeviceMessageCustom(specs);
+		}
+
+		if (key == START_LISTENING_ANALOG) {
+			return new DefaultFromDeviceChangeListeningState(
+					analogPin(parseInt(specs)), START);
+		} else if (key == START_LISTENING_DIGITAL) {
+			return new DefaultFromDeviceChangeListeningState(
+					digitalPin(parseInt(specs)), START);
+		} else if (key == STOP_LISTENING_ANALOG) {
+			return new DefaultFromDeviceChangeListeningState(
+					analogPin(parseInt(specs)), STOP);
+		} else if (key == STOP_LISTENING_DIGITAL) {
+			return new DefaultFromDeviceChangeListeningState(
+					digitalPin(parseInt(specs)), STOP);
 		}
 
 		String pinAndState = specs;
@@ -216,35 +226,35 @@ public class ArdulinkProtocol2 implements Protocol {
 		checkState(split.length == 2, "Error splitting %s, cannot process %s",
 				pinAndState, in);
 
-		Integer pin = tryParse(split[0]);
-		Integer value = tryParse(split[1]);
-		checkState(key != null && pin != null && value != null,
-				"key %s pin %s value %s", key, pin, value);
+		int pin = parseInt(split[0]);
+		int value = parseInt(split[1]);
 		if (key == ANALOG_PIN_READ) {
-			return new DefaultFromDeviceMessagePinStateChanged(analogPin(pin), value);
+			return new DefaultFromDeviceMessagePinStateChanged(analogPin(pin),
+					value);
 		} else if (key == DIGITAL_PIN_READ) {
 			return new DefaultFromDeviceMessagePinStateChanged(digitalPin(pin),
 					toBoolean(value));
 		}
+
 		throw new IllegalStateException(key + " " + in);
 	}
 
-	private Map<String, Object> getParamsFromQuery(String query) {
-		checkNotNull(query, "Params can't be null");
-		Map<String, Object> retvalue = new HashMap<String, Object>();
-		String[] p = query.split("&");
-		for (String param : p) {
-			int index = param.indexOf("=");
-			retvalue.put(param.substring(0, index), param.substring(index + 1));
+	private static Map<String, String> paramsToMap(String query) {
+		MapBuilder<String, String> builder = MapBuilder
+				.<String, String> newMapBuilder();
+		for (String param : checkNotNull(query, "Params can't be null").split(
+				"&")) {
+			String[] kv = param.split("=");
+			builder.put(kv[0], kv[1]);
 		}
-		return retvalue;
+		return builder.build();
 	}
 
-	private String removeFirstSlash(String path) {
-		return !path.startsWith("/") ? path : path.substring(1);
+	private static String removeFirstSlash(String path) {
+		return path.startsWith("/") ? path.substring(1) : path;
 	}
 
-	private IllegalStateException illegalPinType(Pin pin) {
+	private static IllegalStateException illegalPinType(Pin pin) {
 		return new IllegalStateException("Illegal type " + pin.getType()
 				+ " of pin " + pin);
 	}
@@ -262,11 +272,7 @@ public class ArdulinkProtocol2 implements Protocol {
 	 * @return byte[] holding the passed message and the protocol's divider
 	 */
 	private byte[] toBytes(String message) {
-		byte[] bytes = new byte[message.length() + separator.length];
-		byte[] msgBytes = message.getBytes();
-		arraycopy(msgBytes, 0, bytes, 0, msgBytes.length);
-		arraycopy(separator, 0, bytes, msgBytes.length, separator.length);
-		return bytes;
+		return Bytes.concat(message.getBytes(), separator);
 	}
 
 }

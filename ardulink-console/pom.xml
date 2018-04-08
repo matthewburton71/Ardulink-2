@@ -6,7 +6,7 @@
 	<parent>
 		<groupId>org.ardulink</groupId>
 		<artifactId>parent</artifactId>
-		<version>2.0.2-SNAPSHOT</version>
+		<version>2.1.1-SNAPSHOT</version>
 	</parent>
 
 	<build>
@@ -83,6 +83,13 @@
 		<dependency>
 			<groupId>org.ardulink</groupId>
 			<artifactId>ardulink-core-raspberry</artifactId>
+			<version>${project.version}</version>
+			<scope>runtime</scope>
+			<optional>true</optional>
+		</dependency>
+		<dependency>
+			<groupId>org.ardulink</groupId>
+			<artifactId>ardulink-core-nodemcu</artifactId>
 			<version>${project.version}</version>
 			<scope>runtime</scope>
 			<optional>true</optional>

@@ -18,11 +18,10 @@ package org.ardulink.mail.test;
 
 import static org.mockito.Mockito.mock;
 
-import org.ardulink.mail.test.MockLinkFactory.MockLinkConfig;
-
 import org.ardulink.core.Link;
 import org.ardulink.core.linkmanager.LinkConfig;
 import org.ardulink.core.linkmanager.LinkFactory;
+import org.ardulink.mail.test.MockLinkFactory.MockLinkConfig;
 
 /**
  * [ardulinktitle] [ardulinkversion]

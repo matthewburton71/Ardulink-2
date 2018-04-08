@@ -23,6 +23,7 @@ import static org.ardulink.core.beans.finder.impl.FindByAnnotation.propertyAnnot
 import static org.ardulink.util.Preconditions.checkArgument;
 import static org.ardulink.util.Preconditions.checkNotNull;
 import static org.ardulink.util.Preconditions.checkState;
+import static org.ardulink.util.Strings.nullOrEmpty;
 import static org.ardulink.util.Throwables.propagate;
 
 import java.lang.annotation.Annotation;
@@ -39,15 +40,15 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.ResourceBundle;
-import java.util.ServiceLoader;
 
 import javax.validation.constraints.Max;
 import javax.validation.constraints.Min;
 
 import org.ardulink.core.Link;
 import org.ardulink.core.beans.Attribute;
+import org.ardulink.core.beans.Attribute.AttributeReader;
 import org.ardulink.core.beans.BeanProperties;
-import org.ardulink.core.classloader.ModuleClassLoader;
+import org.ardulink.core.beans.BeanProperties.DefaultAttribute;
 import org.ardulink.core.linkmanager.LinkConfig.ChoiceFor;
 import org.ardulink.core.linkmanager.LinkConfig.I18n;
 import org.ardulink.core.linkmanager.LinkConfig.Named;
@@ -169,6 +170,40 @@ public abstract class LinkManager {
 
 	}
 
+	private static final class HardCodedValues implements AttributeReader {
+
+		private final String name;
+		private final Class<?> type;
+		private final Object value;
+
+		public HardCodedValues(String name, Class<?> type, Object value) {
+			this.name = name;
+			this.type = type;
+			this.value = value;
+		}
+
+		@Override
+		public String getName() {
+			return name;
+		}
+
+		@Override
+		public Class<?> getType() {
+			return type;
+		}
+
+		@Override
+		public Object getValue() throws Exception {
+			return value;
+		}
+
+		@Override
+		public void addAnnotations(Collection<Annotation> annotations) {
+			// since this class has no reference to a method or field there are
+			// no annos to add
+		}
+	}
+
 	private static class DefaultConfigurer<T extends LinkConfig> implements
 			Configurer {
 
@@ -189,22 +224,55 @@ public abstract class LinkManager {
 			public ConfigAttributeAdapter(T linkConfig,
 					BeanProperties beanProperties, String key) {
 				this.attribute = beanProperties.getAttribute(key);
-				checkArgument(attribute != null,
-						"Could not determine attribute %s", key);
-				this.getChoicesFor = BeanProperties.builder(linkConfig)
-						.using(propertyAnnotated(ChoiceFor.class)).build()
-						.getAttribute(attribute.getName());
+				checkArgument(
+						attribute != null,
+						"Could not determine attribute %s. Available attributes are %s",
+						key, beanProperties.attributeNames());
+				this.getChoicesFor = choicesFor(linkConfig);
 				this.dependsOn = this.getChoicesFor == null ? Collections
 						.<ConfigAttribute> emptyList()
 						: resolveDeps(this.getChoicesFor);
-				I18n nls = linkConfig.getClass().getAnnotation(I18n.class);
-				this.nls = nls == null ? null : ResourceBundle.getBundle(nls
-						.value(), Locale.getDefault(), linkConfig.getClass()
-						.getClassLoader());
+				Class<?> linkConfigClass = linkConfig.getClass();
+				I18n nls = linkConfigClass.getAnnotation(I18n.class);
+				this.nls = nls == null ? null : resourceBundle(linkConfigClass,
+						nls);
+			}
+
+			private ResourceBundle resourceBundle(Class<?> linkConfigClass,
+					I18n nls) {
+				String baseName = nullOrEmpty(nls.value()) ? useClassname(linkConfigClass)
+						: usePackageAndName(linkConfigClass, nls);
+				return ResourceBundle.getBundle(baseName, Locale.getDefault(),
+						linkConfigClass.getClassLoader());
+			}
+
+			private String useClassname(Class<?> clazz) {
+				return clazz.getName();
+			}
+
+			private String usePackageAndName(Class<?> clazz, I18n nls) {
+				return clazz.getPackage().getName() + "." + nls.value();
+			}
+
+			private Attribute choicesFor(T linkConfig) {
+				Attribute choiceFor = BeanProperties.builder(linkConfig)
+						.using(propertyAnnotated(ChoiceFor.class)).build()
+						.getAttribute(attribute.getName());
+				if (choiceFor == null && attribute.getType().isEnum()) {
+					HardCodedValues reader = new HardCodedValues(
+							attribute.getName(), attribute.getType(), attribute
+									.getType().getEnumConstants());
+					return new DefaultAttribute(attribute.getName(),
+							attribute.getType(), reader, null);
+				}
+				return choiceFor;
 			}
 
 			private List<ConfigAttribute> resolveDeps(Attribute choiceFor) {
 				ChoiceFor cfa = choiceFor.getAnnotation(ChoiceFor.class);
+				if (cfa == null) {
+					return Collections.emptyList();
+				}
 				List<ConfigAttribute> deps = new ArrayList<ConfigAttribute>(
 						cfa.dependsOn().length);
 				for (String name : cfa.dependsOn()) {
@@ -516,20 +584,15 @@ public abstract class LinkManager {
 				return Optional.<LinkFactory<?>> absent();
 			}
 
+			// of course we also could load the FactoryFactories via
+			// serviceloader to enable additional FactoryFactories
 			private List<LinkFactory> getConnectionFactories() {
-				return Lists.newArrayList(ServiceLoader.load(LinkFactory.class,
-						classloader()).iterator());
-			}
-
-			private ClassLoader classloader() {
-				ClassLoader classLoader = Thread.currentThread()
-						.getContextClassLoader();
-				return new ModuleClassLoader(classLoader, systemProperty(
-						"ardulink.module.dir").or("."));
-			}
-
-			private Optional<String> systemProperty(String propertyName) {
-				return Optional.ofNullable(System.getProperty(propertyName));
+				List<LinkFactory> factories = Lists.newArrayList();
+				factories.addAll(new FactoriesViaServiceLoader()
+						.loadLinkFactories());
+				factories.addAll(new FactoriesViaMetaInfArdulink()
+						.loadLinkFactories());
+				return factories;
 			}
 
 			@Override
@@ -561,9 +624,26 @@ public abstract class LinkManager {
 				return configurer;
 			}
 
-			private Object convert(String value, Class<?> targetType) {
-				return targetType.isInstance(value) ? value : Primitive
-						.parseAs(targetType, value);
+			private Object convert(String value,
+					Class<? extends Object> targetType) {
+				if (targetType.isInstance(value)) {
+					return value;
+				} else if (targetType.isEnum()) {
+					@SuppressWarnings("unchecked")
+					Class<Enum<?>> enumClass = (Class<Enum<?>>) targetType;
+					return enumWithName(enumClass, value);
+				} else {
+					return Primitive.parseAs(targetType, value);
+				}
+			}
+
+			private Object enumWithName(Class<Enum<?>> targetType, String value) {
+				for (Enum<?> enumConstant : targetType.getEnumConstants()) {
+					if (enumConstant.name().equals(value)) {
+						return enumConstant;
+					}
+				}
+				return null;
 			}
 
 		};

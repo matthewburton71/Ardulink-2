@@ -67,6 +67,9 @@ public class SerialLinkConfig implements LinkConfig {
 	@Named("pingprobe")
 	private boolean pingprobe = true;
 
+	@Named("searchport")
+	private boolean searchport;
+
 	public int getBaudrate() {
 		return baudrate;
 	}

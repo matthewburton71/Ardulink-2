@@ -1,25 +1,22 @@
 package org.ardulink.core.virtual;
 
-import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static org.ardulink.core.Pin.Type.ANALOG;
 import static org.ardulink.core.Pin.Type.DIGITAL;
 
 import java.io.IOException;
 import java.security.SecureRandom;
 import java.util.Arrays;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.concurrent.ConcurrentHashMap;
 
 import org.ardulink.core.AbstractListenerLink;
 import org.ardulink.core.Pin;
 import org.ardulink.core.Pin.AnalogPin;
 import org.ardulink.core.Pin.DigitalPin;
-import org.ardulink.core.Pin.Type;
 import org.ardulink.core.Tone;
 import org.ardulink.core.events.DefaultAnalogPinValueChangedEvent;
 import org.ardulink.core.events.DefaultDigitalPinValueChangedEvent;
-import org.ardulink.core.linkmanager.LinkConfig;
 import org.ardulink.core.proto.api.MessageIdHolders;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -31,35 +28,28 @@ public class VirtualLink extends AbstractListenerLink {
 	private final SecureRandom secureRandom = new SecureRandom();
 
 	private final Thread thread = new Thread() {
-
-		{
-			setDaemon(true);
-			start();
-		}
-
 		@Override
 		public void run() {
 			while (true) {
 				sendRandomMessagesAndSleep();
 			}
 		}
-
 	};
 
-	private final Map<Pin, Object> listeningPins = new HashMap<Pin, Object>();
+	private final Map<Pin, Object> listeningPins = new ConcurrentHashMap<Pin, Object>();
 
-	public VirtualLink(LinkConfig config) {
+	private VirtualLinkConfig config;
+
+	public VirtualLink(VirtualLinkConfig config) {
 		super();
+		this.config = config;
+		this.thread.setDaemon(true);
+		this.thread.start();
 	}
 
 	protected void sendRandomMessagesAndSleep() {
-		try {
-			sendRandomPinStates();
-			MILLISECONDS.sleep(250);
-		} catch (InterruptedException e) {
-			Thread.currentThread().interrupt();
-		}
-
+		sendRandomPinStates();
+		config.delay();
 	}
 
 	protected void sendRandomPinStates() {
@@ -88,10 +78,10 @@ public class VirtualLink extends AbstractListenerLink {
 	}
 
 	private Object getRandomValue(Pin pin) {
-		if (pin.is(Type.ANALOG)) {
+		if (pin.is(ANALOG)) {
 			return getRandomAnalog();
 		}
-		if (pin.is(Type.DIGITAL)) {
+		if (pin.is(DIGITAL)) {
 			return getRandomDigital();
 		}
 		throw new IllegalStateException("Cannot handle pin type "
